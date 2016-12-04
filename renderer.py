@@ -54,10 +54,11 @@ def sanitize(s):
 
 def render_actor_node(a):
     label = sanitize(a.name)
-    prestige = sum(m.stars_pct for m in a.movies)
-    size = 10 + prestige / 50
+    #prestige = sum(m.stars_pct**2 / 100 for m in a.movies)
+    size = 20
     average_rating = sum(m.stars_pct / 10 for m in a.movies) / len(a.movies)
-    r, g, b = hsv_to_rgb(.5 * average_rating / 10, 1, 1)
+    #r, g, b = hsv_to_rgb(.66 * average_rating / 10, 1, .85)
+    r,g,b = 120, 120, 120
     return """
     <node id="{id}" label="{label}">
         <viz:color r="{r}" g="{g}" b="{b}" />
@@ -70,7 +71,7 @@ def render_actor_node(a):
 def render_movie_node(m):
     label = sanitize(m.name)
     size = 20 + len(m.actors)
-    r, g, b = hsv_to_rgb(.5 * m.stars_pct / 100, 1, 1)
+    r, g, b = hsv_to_rgb(.66 * m.stars_pct / 100, 1, .85)
     return """
     <node id="{id}" label="{label}">
         <viz:color r="{r}" g="{g}" b="{b}" />
@@ -83,7 +84,7 @@ def render_edge(actor, movie, next_eid=[1]):
     eid = next_eid[0]
     next_eid[0] += 1
     return """
-    <edge id="{eid}" source="{aid}" target="{mid}" />
+    <edge id="{eid}" source="{aid}" target="{mid}" label="test" />
     """.format(eid=eid, aid=id(actor), mid=id(movie))
 
 
@@ -94,7 +95,7 @@ def summarize(name, graph):
 
 
 def header():
-    return '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.1draft/viz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2"> <graph> <nodes>'
+    return '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.1draft/viz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2"> <graph defaultedgetype="undirected"> <nodes>'
 
 def render_graph(graph, filename):
     result = [header()]

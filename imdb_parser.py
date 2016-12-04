@@ -36,7 +36,7 @@ def parse_movie_title(string):
 
 def parse_movies(graph, filename):
     #            distr.      votes       rating        title        year
-    REGEX = '[ ]+[*.0-9]+[ ]+([0-9]+)[ ]+([.0-9]+)  \\"?(.*)\\"? \\(([0-9]+)\\)'
+    REGEX = '[ ]+[*.0-9]+[ ]+([0-9]+)[ ]+([.0-9]+)  \\"?(.*)\\"? \\(([0-9]+)\\)$'
     parse_fail_count = 0
     with open(filename, encoding='latin-1', mode='r') as infile:
         for idx, line in enumerate(infile, 1):
@@ -106,6 +106,6 @@ if __name__ == '__main__':
     parse_movies(graph, movie_file)
     parse_actors(graph, actor_file)
     graph.store()
-    with open('data.bin', 'wb') as out:
+    with open('data2.bin', 'wb') as out:
         pickle.dump(graph, out)
 
