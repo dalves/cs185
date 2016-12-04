@@ -2,151 +2,110 @@
 
 from collections import defaultdict
 from itertools import combinations
+import pickle
 import io
 import re
 import sys
 import json
 
-top250 = [line.strip() for line in open('top250.txt', 'r', encoding='latin-1')]
-REGEX = re.compile('|'.join(x.replace('(', '\\(').replace(')', '\\)')
-                    for x in top250))
+from model import Actor, Graph, Movie, UnknownMovieException
+
+sys.setrecursionlimit(10000)
 
 def log(*args, **kwargs):
     print(*args, **kwargs, file=sys.stderr)
 
-def parse_title(string):
-    m = re.match(REGEX, string)
-    if m:
-        return m.group(0)
-    return None
-
-    #    if string.startswith(t):
-    #        return t
-    #return None
-
+def parse_movie_title(string):
     # Ignore TV shows
-    #if re.search('#[0-9]+\\.[0-9]+', string):
-    #    return None
+    if re.search('#[0-9]+\\.[0-9]+', string):
+        return None
 
-    #parsed = re.match('"([^"]*)" (\\([?0-9]+.*\\))', string)
-    #if parsed:
-    #    return '{} ({})'.format(parsed.group(1).strip(), parsed.group(2))
-    #parsed = re.match('(.*) \\(([?0-9]+.*)\\)', string)
-    #if parsed:
-    #    return '{} ({})'.format(parsed.group(1).strip(), parsed.group(2))
-    #raise Exception('Unable to parse title: ' + string)
+    parsed = re.match('"([^"]*)" \\(([0-9]+)\\)', string)
+    if not parsed:
+        # Backup regex
+        parsed = re.match('(.*) \\(([0-9]+)\\)', string)
 
-def summarize():
-    log('Parsed ', len(actors_to_movies), 'actors')
-    log('Parsed ', len(movies_to_actors), 'movies')
+    if parsed:
+        name = parsed.group(1)
+        year = parsed.group(2)
+        if '?' in year:
+            return None
+        return name, year
+    return None
+    #raise Exception('Unable to parse movie: ' + string)
+
+def parse_movies(graph, filename):
+    #            distr.      votes       rating        title        year
+    REGEX = '[ ]+[*.0-9]+[ ]+([0-9]+)[ ]+([.0-9]+)  \\"?(.*)\\"? \\(([0-9]+)\\)'
+    parse_fail_count = 0
+    with open(filename, encoding='latin-1', mode='r') as infile:
+        for idx, line in enumerate(infile, 1):
+            parsed = re.match(REGEX, line)
+            if parsed is not None:
+                votes, stars, title, year = parsed.groups()
+                if int(votes) >= 1000:
+                    movie = Movie(title, int(year), float(stars), int(votes))
+                    graph.add_movie(movie)
+            else:
+                #print('Failed to parse',line)
+                parse_fail_count += 1
+        #log('Parse failed for ', parse_fail_count, 'out of', idx)
 
 
-
-def parse_stdin():
-    actors_to_movies = {}
+def parse_actors(graph, filename):
     actor = None
-    movies = set()
-    stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='latin-1')
+    with open(filename, encoding='latin-1', mode='r') as infile:
+        for idx, line in enumerate(infile, 1):
+            # Remove trailing whitespace
+            line = line.rstrip()
+            if not line:
+                if actor is not None and actor.movies:
+                    graph.add_actor(actor)
+                actor = None
+                continue
 
-    for idx, line in enumerate(stdin, 1):
-        # Remove trailing whitespace
-        line = line.rstrip()
-        if idx < 240 or idx >= 20494549:
-            # Actual data starts on line 240 and ends on
-            continue
-        if not line:
-            if movies:
-                actors_to_movies[actor] = movies
-            actor = None
-            movies = []
-            continue
+            try:
+                fields = line.split('\t')
+                debug = [idx, line] + fields
+                if fields[0]:
+                    if actor == None:
+                        actor = Actor(fields.pop(0))
+                    else:
+                        raise Exception('Unexpected actor on line ' + str(idx) +
+                                        ':\n     ' + repr(fields))
 
-        try:
-            fields = line.split('\t')
-            debug = [idx, line] + fields
-            if fields[0]:
-                if actor == None:
-                    actor = fields.pop(0)
-                else:
-                    raise Exception('Unexpected actor on line ' + str(idx) +
-                                    ':\n     ' + repr(fields))
-            while fields and not fields[0]:
-                fields = fields[1:]
-            if len(fields) > 1 or len(fields) == 0:
-                raise Exception('Unable to parse movie title on line ' +
-                                str(idx) + ':\n     ' + repr(fields) )
-            movie_title = parse_title(fields[0])
-            if movie_title and movie_title not in movies:
-                movies.append(movie_title)
-        except Exception as ex:
-            log(repr(debug), file=sys.stderr)
-            summarize()
-            raise ex
-    return actors_to_movies
+                # Strip leading blank fields
+                while fields and not fields[0]:
+                    fields = fields[1:]
+
+                # More than one field
+                if len(fields) > 1 or len(fields) == 0:
+                    raise Exception('Unable to parse movie title on line ' +
+                                    str(idx) + ':\n     ' + repr(fields) )
 
 
-def output_gml_actors_as_nodes_movies_as_nodes():
-    print('graph')
-    print('[')
-    print('  directed 0')
-    for actor in actors_to_movies.keys():
-        print('  node')
-        print('  [')
-        print('  id ' + actors_to_ids[actor])
-        print('  label "' + actor + '"')
-        print('  ]')
-
-    for movie, actor_list in movies_to_actors.items():
-        print('  node')
-        print('  [')
-        print('  id ' + movies_to_ids[movie])
-        print('  label "' + movie + '"')
-        print('  ]')
-        for actor in actor_list:
-            print('  edge')
-            print('  [')
-            print('  source ' + actors_to_ids[actor])
-            print('  target ' + movies_to_ids[movie])
-            print('  ]')
-    print(']')
+                result = parse_movie_title(fields[0])
+                if not result:
+                    continue
+                movie_title, year = result
+                try:
+                    m = graph.get_movie(movie_title, year)
+                    actor.add_role(m)
+                except UnknownMovieException as ex:
+                    pass
 
 
-def output_gml_actors_as_nodes_movies_as_edges():
-    print('graph')
-    print('[')
-    print('  directed 0')
-    for actor in actors_to_movies.keys():
-        print('  node')
-        print('  [')
-        print('  id ' + actors_to_ids[actor])
-        print('  label "' + actor + '"')
-        print('  ]')
+            except Exception as ex:
+                log(repr(debug))
+                raise ex
 
-    for movie, actor_list in movies_to_actors.items():
-        for actor1, actor2 in combinations(actor_list, 2):
-            print('  edge')
-            print('  [')
-            print('  source ' + actors_to_ids[actor1])
-            print('  target ' + actors_to_ids[actor2])
-            print('  label "' + movie + '"')
-            print('  ]')
-    print(']')
 
 if __name__ == '__main__':
-    actors_to_movies = parse_stdin()
+    graph = Graph()
+    actor_file, movie_file = sys.argv[1:]
+    parse_movies(graph, movie_file)
+    parse_actors(graph, actor_file)
+    graph.store()
+    with open('data.bin', 'wb') as out:
+        pickle.dump(graph, out)
 
-    # Restrict to actors appearing in more than one movie
-    actors_to_movies = {k:v for k,v in actors_to_movies.items() if len(v) > 1}
-
-    movies_to_actors = {}
-    for actor, movie_set in actors_to_movies.items():
-        for movie in movie_set:
-            if movie not in movies_to_actors:
-                movies_to_actors[movie] = []
-            if actor not in movies_to_actors[movie]:
-                movies_to_actors[movie].append(actor)
-
-    actors_to_ids = {name : 'A'+str(idx) for idx, name in enumerate(actors_to_movies.keys())}
-    movies_to_ids = {name : 'M'+str(idx) for idx, name in enumerate(movies_to_actors.keys())}
-
-    output_gml_actors_as_nodes_movies_as_nodes()
