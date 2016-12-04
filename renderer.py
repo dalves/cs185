@@ -43,9 +43,7 @@ def hsv_to_rgb(h, s, v):
     # s in [0, 1]
     # v in [0, 1]
     result = colorsys.hsv_to_rgb(h, s, v)
-    result = [hex(int(255.99 * x))[2:] for x in result]
-    result = ['0' + r if len(r) == 1 else r for r in result]
-    return '#' + ''.join(result)
+    return tuple(int(255.99 * x) for x in result)
 
 
 def sanitize(s):
@@ -55,59 +53,38 @@ def sanitize(s):
 
 
 def render_actor_node(a):
+    label = sanitize(a.name)
     prestige = sum(m.stars_pct for m in a.movies)
-    w = h = int(10 + prestige / 50)
+    size = 10 + prestige / 50
     average_rating = sum(m.stars_pct / 10 for m in a.movies) / len(a.movies)
-    color = hsv_to_rgb(.5 * average_rating / 10, 1, 1)
+    r, g, b = hsv_to_rgb(.5 * average_rating / 10, 1, 1)
     return """
-    node [
-        id {}
-        label "{}"
-        graphics [
-            type "square"
-            w {}
-            h {}
-            fill "{}"
-        ]
-    ]
-    """.format(id(a), sanitize(a.name), w, h, color)
+    <node id="{id}" label="{label}">
+        <viz:color r="{r}" g="{g}" b="{b}" />
+        <viz:size value="{size}" />
+        <viz:shape value="square" />
+    </node>
+    """.format(id=id(a), **locals())
 
 
 def render_movie_node(m):
-    w = h = int(20 + len(m.actors))
-    color = hsv_to_rgb(.5 * m.stars_pct / 100, 1, 1)
+    label = sanitize(m.name)
+    size = 20 + len(m.actors)
+    r, g, b = hsv_to_rgb(.5 * m.stars_pct / 100, 1, 1)
     return """
-    node [
-        id {}
-        label "{}"
-        graphics [
-            type "oval"
-            w {}
-            h {}
-            fill "{}"
-        ]
-    ]
-    """.format(id(m), sanitize(m.name), w, h, color)
+    <node id="{id}" label="{label}">
+        <viz:color r="{r}" g="{g}" b="{b}" />
+        <viz:size value="{size}" />
+        <viz:shape value="disc" />
+    </node>
+    """.format(id=id(m), **locals())
 
-
-def gml_header():
+def render_edge(actor, movie, next_eid=[1]):
+    eid = next_eid[0]
+    next_eid[0] += 1
     return """
-graph
-[
-    directed 0
-    """
-
-
-def render_edge(actor, movie):
-    return """
-    edge [
-        source {}
-        target {}
-        graphics [
-            fill "#666666"
-        ]
-    ]
-    """.format(id(actor), id(movie))
+    <edge id="{eid}" source="{aid}" target="{mid}" />
+    """.format(eid=eid, aid=id(actor), mid=id(movie))
 
 
 def summarize(name, graph):
@@ -116,8 +93,11 @@ def summarize(name, graph):
     print(name, ' nodes:', nodes, 'edges: ', edges)
 
 
+def header():
+    return '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.1draft/viz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2"> <graph> <nodes>'
+
 def render_graph(graph, filename):
-    result = [gml_header()]
+    result = [header()]
 
     for actor in graph.actors:
         result.append(render_actor_node(actor))
@@ -125,10 +105,13 @@ def render_graph(graph, filename):
     for movie in graph.movies:
         result.append(render_movie_node(movie))
 
+    result.append('</nodes><edges>')
+
     for actor in graph.actors:
         for movie in actor.movies:
             result.append(render_edge(actor, movie))
-    result.append(']')
+
+    result.append('</edges></graph></gexf>')
 
     with open(filename, 'w') as out:
         log('Writing to ', filename)
@@ -140,7 +123,7 @@ def render_graph(graph, filename):
 
 
 def render_partial(graph, filename, movie_predicate=TRUE, actor_predicate=TRUE):
-    result = [gml_header()]
+    result = [header()]
 
     movies = set()
     actors = set()
@@ -155,13 +138,15 @@ def render_partial(graph, filename, movie_predicate=TRUE, actor_predicate=TRUE):
             actors.add(actor)
             result.append(render_actor_node(actor))
 
+    result.append('</nodes><edges>')
+
     edge_count = 0
     for movie in movies:
         for actor in movie.actors & actors:
             edge_count += 1
             result.append(render_edge(actor, movie))
 
-    result.append(']')
+    result.append('</edges></graph></gexf>')
 
     with open(filename, 'w') as out:
         log('Writing to ', filename)
@@ -196,7 +181,7 @@ if __name__ == '__main__':
 
     for year in range(1920, 2016, 10):
         movie_predicate = lambda m: m.year == year
-        render_partial(G, str(year) + '.gml', movie_predicate)
+        render_partial(G, str(year) + '.gexf', movie_predicate)
 
     # Actors not in major component
     #fringe_actors = G.actors - major_component.actors
