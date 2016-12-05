@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from itertools import combinations
 import bisect
 import colorsys
@@ -18,12 +18,19 @@ from model import Actor, Graph, Movie
 
 TRUE = lambda x: True
 
+def uid(obj, next_id=[1000], memo={}):
+    if obj not in memo:
+        memo[obj] = next_id[0]
+        next_id[0] += 1
+    return memo[obj]
+
+
 def log(*args, **kwargs):
     print(*args, **kwargs, file=sys.stderr)
 
 
-def load_graph():
-    with open('data.bin', 'rb') as infile:
+def load_graph(filename):
+    with open(filename, 'rb') as infile:
         graph = pickle.load(infile)
         graph.restore()
         return graph
@@ -47,7 +54,7 @@ def hsv_to_rgb(h, s, v):
 
 
 def sanitize(s):
-    OK = set(string.ascii_letters + ' .,-')
+    OK = set(string.digits + string.ascii_letters + ' .,-')
     safe = ''.join(c for c in s if c in OK)
     return safe
 
@@ -65,12 +72,12 @@ def render_actor_node(a):
         <viz:size value="{size}" />
         <viz:shape value="square" />
     </node>
-    """.format(id=id(a), **locals())
+    """.format(id=uid(a), **locals())
 
 
 def render_movie_node(m):
     label = sanitize(m.name)
-    size = 20 + len(m.actors)
+    size = 20 + len(m.actors) / 10
     r, g, b = hsv_to_rgb(.66 * m.stars_pct / 100, 1, .85)
     return """
     <node id="{id}" label="{label}">
@@ -78,14 +85,23 @@ def render_movie_node(m):
         <viz:size value="{size}" />
         <viz:shape value="disc" />
     </node>
-    """.format(id=id(m), **locals())
+    """.format(id=uid(m), **locals())
 
-def render_edge(actor, movie, next_eid=[1]):
+def render_edge(actor, movie, next_eid=[1], deleted=False):
     eid = next_eid[0]
     next_eid[0] += 1
-    return """
-    <edge id="{eid}" source="{aid}" target="{mid}" label="test" />
-    """.format(eid=eid, aid=id(actor), mid=id(movie))
+    if not deleted:
+        return """
+        <edge id="{eid}" source="{aid}" target="{mid}" weight="1">
+            <viz:color r="128" g="128" b="128" />
+        </edge>
+        """.format(eid=eid, aid=uid(actor), mid=uid(movie))
+    else:
+        return """
+        <edge id="{eid}" source="{aid}" target="{mid}" weight="10">
+            <viz:color r="255" g="0" b="0" />
+        </edge>
+        """.format(eid=eid, aid=uid(actor), mid=uid(movie))
 
 
 def summarize(name, graph):
@@ -96,6 +112,8 @@ def summarize(name, graph):
 
 def header():
     return '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.1draft/viz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2"> <graph defaultedgetype="undirected"> <nodes>'
+
+
 
 def render_graph(graph, filename):
     result = [header()]
@@ -159,9 +177,17 @@ def render_partial(graph, filename, movie_predicate=TRUE, actor_predicate=TRUE):
                 edge_count, 'edges\n')
 
 
+def neighbors(x):
+    if isinstance(x, Actor):
+        return x.movies
+    return x.actors
+
+
 if __name__ == '__main__':
 
-    G = load_graph() # Full graph
+    filename = sys.argv[-1] if len(sys.argv) > 1 else 'data.bin'
+
+    G = load_graph(filename) # Full graph
     summarize('Full graph', G)
 
     log('Computing percentile scores... ', end='')
@@ -175,16 +201,11 @@ if __name__ == '__main__':
     log('Before:', ' '.join(str(x) for x in distribution([m.stars for m in G.movies])))
     log('After: ', ' '.join(str(x) for x in distribution([m.stars_pct / 10 for m in G.movies])))
 
-    #major_component = G.subgraph_containing_actor(
-    #        G.actors_by_name['Grimwood, Matt'])
+    movies = list(G.movies)
+    movies.sort(key=lambda x:(x.stars, x.votes), reverse=True)
+    G.movies = set(movies[:100])
+    G.cleanup()
+    G.actors = set(a for a in G.actors if len(a.movies) > 2)
+    G.cleanup()
 
-    #summarize('Major component', major_component)
-
-    for year in range(1920, 2016, 10):
-        movie_predicate = lambda m: m.year == year
-        render_partial(G, str(year) + '.gexf', movie_predicate)
-
-    # Actors not in major component
-    #fringe_actors = G.actors - major_component.actors
-    #graph = G.subgraph_containing_actor(random.choice(list(fringe_actors)))
-    #summarize('Minor subgraph', graph)
+    render_graph(G, 'top250.gexf')

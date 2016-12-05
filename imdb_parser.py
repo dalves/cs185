@@ -106,6 +106,6 @@ if __name__ == '__main__':
     parse_movies(graph, movie_file)
     parse_actors(graph, actor_file)
     graph.store()
-    with open('data2.bin', 'wb') as out:
+    with open('top250.bin', 'wb') as out:
         pickle.dump(graph, out)
 
