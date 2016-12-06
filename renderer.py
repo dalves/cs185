@@ -208,4 +208,8 @@ if __name__ == '__main__':
     G.actors = set(a for a in G.actors if len(a.movies) > 2)
     G.cleanup()
 
-    render_graph(G, 'top250.gexf')
+    for m in G.movies:
+        log('Movie{{"id": {}, "name": "{}", "year": {}, "stars": {}}}'.format(uid(m), m.name, m.year, m.stars))
+    for a in G.actors:
+        log('Actor{{"id": {}, "name": "{}"}}'.format(uid(a), a.name))
+
